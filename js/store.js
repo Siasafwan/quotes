@@ -23,8 +23,16 @@
     async session() { return { email: null }; },
     async loadAll() {
       const d = this._read();
-      return { settings: d.settings || null, clients: d.clients || [], docs: d.docs || [] };
+      return { settings: d.settings || null, clients: d.clients || [], docs: d.docs || [], payments: d.payments || [], expenses: d.expenses || [], booksMissing: false };
     },
+    async saveRow(kind, row) { const d = this._read(); d[kind] = upsertArr(d[kind], row); this._write(d); },
+    async deleteRow(kind, id) { const d = this._read(); d[kind] = (d[kind] || []).filter((x) => x.id !== id); this._write(d); },
+    async uploadReceipt(id, blob, mime) {
+      const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('Could not read the file.')); r.readAsDataURL(blob); });
+      return { kind: 'data', url, mime };
+    },
+    async receiptUrl(ref) { return ref && ref.url; },
+    async deleteReceipt() {},
     async saveSettings(s) { const d = this._read(); d.settings = s; this._write(d); },
     async saveClient(c) { const d = this._read(); d.clients = upsertArr(d.clients, c); this._write(d); },
     async deleteClient(id) { const d = this._read(); d.clients = (d.clients || []).filter((x) => x.id !== id); this._write(d); },
@@ -35,7 +43,7 @@
       d.docs = upsertArr(d.docs, doc); this._write(d);
     },
     async deleteDoc(id) { const d = this._read(); d.docs = (d.docs || []).filter((x) => x.id !== id); this._write(d); },
-    async replaceAll(data) { this._write({ settings: data.settings || null, clients: data.clients || [], docs: data.docs || [] }); },
+    async replaceAll(data) { this._write({ settings: data.settings || null, clients: data.clients || [], docs: data.docs || [], payments: data.payments || [], expenses: data.expenses || [] }); },
     async signOut() {},
   };
   function upsertArr(arr, item) {
@@ -84,11 +92,54 @@
         this.client.from('documents').select('id,data'),
       ]);
       const sd = this._check(s);
+      // Bookkeeping tables are optional until bookkeeping.sql has been run.
+      let payments = [], expenses = [], booksMissing = false;
+      const [p, e] = await Promise.all([
+        this.client.from('payments').select('id,data'),
+        this.client.from('expenses').select('id,data'),
+      ]);
+      if (p.error || e.error) {
+        console.warn('Bookkeeping tables not available', p.error || e.error);
+        booksMissing = true;
+      } else {
+        payments = p.data.map((r) => ({ ...r.data, id: r.id }));
+        expenses = e.data.map((r) => ({ ...r.data, id: r.id }));
+      }
       return {
         settings: sd ? sd.data : null,
         clients: (this._check(c) || []).map((r) => ({ ...r.data, id: r.id })),
         docs: (this._check(d) || []).map((r) => ({ ...r.data, id: r.id })),
+        payments, expenses, booksMissing,
       };
+    },
+    _rowFor(kind, row) {
+      const base = { id: row.id, user_id: this.user.id, data: row, updated_at: new Date().toISOString() };
+      if (kind === 'payments') return { ...base, invoice_id: row.invoiceId || null, pay_date: row.date || null, amount: Number(row.amount) || 0 };
+      if (kind === 'expenses') return { ...base, exp_date: row.date || null, category: row.category || '', supplier: row.supplier || '', total: Number(row.total) || 0, vat: Number(row.vat) || 0, due_date: row.dueDate || null, status: row.status || 'Paid' };
+      throw new Error('Unknown record type ' + kind);
+    },
+    async saveRow(kind, row) { this._check(await this.client.from(kind).upsert(this._rowFor(kind, row))); },
+    async deleteRow(kind, id) { this._check(await this.client.from(kind).delete().eq('id', id)); },
+    async uploadReceipt(id, blob, mime) {
+      const ext = mime === 'application/pdf' ? 'pdf' : mime === 'image/png' ? 'png' : 'jpg';
+      const path = `${this.user.id}/${id}-${Date.now()}.${ext}`;
+      const { error } = await this.client.storage.from('receipts').upload(path, blob, { contentType: mime, upsert: true });
+      if (error) {
+        if (/bucket not found/i.test(error.message)) throw new Error('Receipt storage is not set up yet. Run bookkeeping.sql in Supabase.');
+        throw new Error('Receipt upload failed: ' + error.message);
+      }
+      return { kind: 'storage', path, mime };
+    },
+    async receiptUrl(ref) {
+      if (!ref) return null;
+      if (ref.kind === 'data') return ref.url;
+      const { data, error } = await this.client.storage.from('receipts').createSignedUrl(ref.path, 600);
+      if (error) throw new Error('Could not open the receipt: ' + error.message);
+      return data.signedUrl;
+    },
+    async deleteReceipt(ref) {
+      if (!ref || ref.kind !== 'storage') return;
+      await this.client.storage.from('receipts').remove([ref.path]);
     },
     async saveSettings(s) {
       this._check(await this.client.from('settings').upsert({ user_id: this.user.id, data: s, updated_at: new Date().toISOString() }));
@@ -118,6 +169,8 @@
       if (data.settings) await this.saveSettings(data.settings);
       for (const c of data.clients || []) await this.saveClient(c);
       for (const d of data.docs || []) await this.saveDoc(d);
+      for (const r of data.payments || []) await this.saveRow('payments', r);
+      for (const r of data.expenses || []) await this.saveRow('expenses', r);
     },
   };
 

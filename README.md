@@ -10,6 +10,7 @@ A private web app for creating quotations, converting approved quotations into i
 - VAT at 5% (editable per document), discount, subtotal, VAT amount, total, amount in words, amount received and balance due.
 - A4 PDFs with your logo, company details, TRN, bank details and signature lines. Invoices are titled **Tax Invoice** once your TRN is entered.
 - Saved clients, search and filters, a dashboard of open, approved and unpaid amounts.
+- **Bookkeeping:** expenses with receipt photos, supplier bills (payables), payment history on invoices (receivables), profit & loss, VAT summary, and receivables/payables ageing. Every report downloads as PDF or CSV (opens in Excel).
 - Data stored in your own free Supabase database behind a login, synced between devices. JSON backup and restore.
 - Installs on your phone's home screen like an app.
 
@@ -63,6 +64,8 @@ Allow about 30 minutes. You only need a web browser.
    - the **publishable key** (starts with `sb_publishable_`). The older **anon public** key also works.
    - Never use the **secret** or **service_role** key in this app.
 
+   7. Run the bookkeeping script too: **SQL Editor → New query**, paste everything from `supabase/bookkeeping.sql`, click **Run**. It adds the payments and expenses tables and a private **receipts** storage folder. If Supabase warns about "destructive operations", that is the `drop policy` lines (they only replace security rules); click **Run this query**.
+
 ### Step 4 — Connect the website to the database
 
 1. On GitHub, open your repository → `js` folder → `config.js` → click the **pencil icon** (Edit).
@@ -110,9 +113,30 @@ Sign in once on each device. You stay signed in.
 
 The dashboard shows open quotations, approved quotations not yet invoiced, unpaid balances and payments this month.
 
+## Bookkeeping
+
+Open **Bookkeeping** in the menu (**Books** on your phone). It has six tabs:
+
+| Tab | What it shows |
+|---|---|
+| Summary | Revenue, expenses and net profit for any period, month by month and by expense category, plus cash in and out. Download the **P&L PDF**. |
+| Expenses | Everything you spend. Add the supplier, category, total and a photo of the receipt. VAT at 5% is worked out from the total automatically (or choose "No VAT" or enter the VAT amount). |
+| Payables | Supplier bills you have not paid yet, grouped by how overdue they are. Tap **Pay** to record a full or part payment. |
+| Money in | Payments received from clients in the period, by method. |
+| Receivables | Unpaid invoices grouped by how overdue they are, and totals by client. |
+| VAT | VAT charged on your invoices minus VAT paid on expenses, for the quarter, with every invoice and expense listed. Expenses with VAT but no supplier TRN are flagged, because you normally need the supplier's tax invoice to claim that VAT back. |
+
+**Recording payments from clients:** open an invoice → **Record payment**. Enter the date, amount, method (bank transfer, cash, cheque, card) and reference. Part payments are fine. The invoice status (Unpaid → Partially Paid → Paid) and the balance on the PDF update automatically. Use **Cancel invoice** for an invoice that will not be paid; it stays on file but is left out of revenue, VAT and receivables.
+
+**Expense or supplier bill?** When you add an expense, choose **Paid** if you paid on the spot, or **Not paid yet (supplier bill)** to track it under Payables with a due date.
+
+**Settings → Bookkeeping:** edit the expense categories and set your VAT quarters to match your tax period (quarters starting in January, February or March).
+
+Revenue and VAT are counted by invoice date; expenses by expense date. The figures are a well-organised guide built from your records: have your accountant review them before you file a VAT or Corporate Tax return.
+
 ## Keeping your data safe
 
-- **Backups**: Settings → **Download backup** saves everything as one `.json` file. Do this monthly and keep it in your email or cloud drive.
+- **Backups**: Settings → **Download backup** saves everything (documents, clients, payments, expenses) as one `.json` file. Do this monthly and keep it in your email or cloud drive. Receipt photos stay in your Supabase storage and are not inside the backup file.
 - **Free-plan pause**: Supabase pauses free projects after a week with no activity. If the app shows a connection error after a quiet week, open your Supabase dashboard and click **Restore project**, then reload. Using the app at least once a week avoids this; the paid plan never pauses.
 - **Privacy**: the database only answers to your signed-in account (row-level security), and sign-ups are disabled. Use a strong password.
 
@@ -132,6 +156,8 @@ To use something like `quotes.ectechz.com`: in **Settings → Pages → Custom d
 | "Could not load the Supabase library" | No internet connection, or a network blocking `cdn.jsdelivr.net`. Try another connection. |
 | "Email or password is incorrect" | Check Supabase → Authentication → Users. Use **Send password recovery** or delete and re-add the user. |
 | Errors mentioning `relation ... does not exist` | `schema.sql` was not run. Repeat Step 3.3. |
+| Bookkeeping says it "needs a one-time database update" | Run `supabase/bookkeeping.sql` in the SQL Editor (Step 3.7), then reload. |
+| "Receipt storage is not set up yet" | Same fix: run `bookkeeping.sql`. |
 | Connection errors after a quiet week | The free project is paused. Restore it in the Supabase dashboard. |
 | "That number is already used" | Each quotation and invoice number must be unique. Change the number and save. |
 | Page shows a 404 | Make sure `index.html` sits at the top of the repository (not inside a sub-folder) and Pages uses **/ (root)**. |
@@ -144,10 +170,13 @@ manifest.json         Home-screen app settings
 css/styles.css        Interface design
 js/config.js          Your Supabase URL and key (Step 4)
 js/app.js             Screens, editor, status, conversion, backups
+js/books.js           Bookkeeping: expenses, payables, payments, P&L, VAT, ageing
+js/report.js          PDF layout for reports
 js/pdf.js             PDF layout for quotations and invoices
 js/calc.js            VAT maths, numbering, amount in words
 js/store.js           Saving data (Supabase, or browser storage)
 lib/                  pdf-lib (makes PDFs) and pdf.js (previews them), with licences
 assets/               Logo and app icons
 supabase/schema.sql   Database tables and security rules (Step 3)
+supabase/bookkeeping.sql  Payments, expenses and receipt storage (Step 3.7)
 ```

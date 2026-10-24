@@ -25,12 +25,17 @@
       invoiceTerms: 'Payment is due by the due date shown on this invoice.\nPlease quote the invoice number when making payment.\nAll bank charges are to be borne by the payer.',
       showBankOnQuote: false,
     },
+    books: {
+      vatQuarterStart: 1, // 1 = quarters start Jan/Apr/Jul/Oct, 2 = Feb/May/Aug/Nov, 3 = Mar/Jun/Sep/Dec
+      billDueDays: 30,
+      categories: ['Hardware & equipment', 'Materials & cabling', 'Software & subscriptions', 'Subcontractors', 'Fuel & transport', 'Vehicle costs', 'Rent', 'Utilities & telecom', 'Salaries & wages', 'Marketing', 'Bank charges', 'Government fees & licences', 'Office supplies', 'Professional fees', 'Other'],
+    },
   };
 
   const QUOTE_STATUSES = ['Draft', 'Sent', 'Approved', 'Rejected'];
   const INVOICE_STATUSES = ['Unpaid', 'Partially Paid', 'Paid', 'Cancelled'];
 
-  const state = { settings: null, clients: [], docs: [], ready: false };
+  const state = { settings: null, clients: [], docs: [], payments: [], expenses: [], booksMissing: false, ready: false };
   let dirty = false;
   let ignoreHash = false;
   let lastHash = location.hash;
@@ -90,6 +95,8 @@
     up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>',
     down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    books: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h13v15H6a2 2 0 0 0-2 2z"/><path d="M4 20a2 2 0 0 0 2 2h13v-4"/><path d="M9 8h6M9 11.5h4"/></svg>',
+    receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.1 12.6 20a5 5 0 0 1-7.1-7.1l8.9-8.9a3.3 3.3 0 0 1 4.7 4.7l-8.9 8.9a1.7 1.7 0 0 1-2.4-2.4l8.2-8.2"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
   };
 
@@ -228,13 +235,14 @@
     { href: '#/', key: 'home', label: 'Overview', icon: I.home },
     { href: '#/quotes', key: 'quotes', label: 'Quotations', icon: I.quote },
     { href: '#/invoices', key: 'invoices', label: 'Invoices', icon: I.invoice },
+    { href: '#/books', key: 'books', label: 'Bookkeeping', short: 'Books', icon: I.books },
     { href: '#/clients', key: 'clients', label: 'Clients', icon: I.clients },
     { href: '#/settings', key: 'settings', label: 'Settings', icon: I.settings },
   ];
   function renderShell(active) {
     $('#nav').innerHTML = NAV.map((n) => `<a href="${n.href}" class="${n.key === active ? 'active' : ''}">${n.icon}<span>${n.label}</span></a>`).join('') +
       `<a href="#/new/quote" class="nav-new">${I.plus}<span>New quotation</span></a>`;
-    $('#tabbar').innerHTML = NAV.map((n) => `<a href="${n.href}" class="${n.key === active ? 'active' : ''}">${n.icon}<span>${n.key === 'home' ? 'Home' : n.label}</span></a>`).join('');
+    $('#tabbar').innerHTML = NAV.map((n) => `<a href="${n.href}" class="${n.key === active ? 'active' : ''}">${n.icon}<span>${n.short || (n.key === 'home' ? 'Home' : n.key === 'quotes' ? 'Quotes' : n.label)}</span></a>`).join('');
     const name = S().company.name || 'Quotes & Invoices';
     $('#brandName').textContent = name;
     $('#topTitle').textContent = name;
@@ -269,6 +277,7 @@
       case 'quotes': return viewList('quote');
       case 'invoices': return viewList('invoice');
       case 'clients': return viewClients();
+      case 'books': return window.Books.route(parts.slice(1));
       case 'settings': return viewSettings();
       case 'new': return viewEditor(null, parts[1] === 'invoice' ? 'invoice' : 'quote', parts[2]);
       case 'edit': return viewEditor(parts[1]);
@@ -318,7 +327,7 @@
     const toInvoice = quotes.filter((q) => q.status === 'Approved' && !q.invoiceId);
     const unpaid = invoices.filter((i) => i.status === 'Unpaid' || i.status === 'Partially Paid');
     const month = today().slice(0, 7);
-    const paidMonth = invoices.filter((i) => i.status === 'Paid' && (i.paidDate || i.issueDate || '').startsWith(month));
+    const paidMonth = state.payments.filter((p) => (p.date || '').startsWith(month));
     const cur = S().defaults.currency || 'AED';
 
     const fig = (href, label, value, hint) => `<a class="figure" href="${href}"><div class="label">${label}</div><div class="value"><small>${cur}</small>${money(value)}</div><div class="hint">${hint}</div></a>`;
@@ -337,7 +346,7 @@
         ${fig('#/quotes?status=open', 'Open quotations', sum(open), `${open.length} draft or sent`)}
         ${fig('#/quotes?status=Approved', 'Approved, not invoiced', sum(toInvoice), `${toInvoice.length} ready to convert`)}
         ${fig('#/invoices?status=open', 'Awaiting payment', sum(unpaid, (d) => totals(d).balance), `${unpaid.length} unpaid invoice${unpaid.length === 1 ? '' : 's'}`)}
-        ${fig('#/invoices?status=Paid', 'Paid this month', sum(paidMonth), `${paidMonth.length} invoice${paidMonth.length === 1 ? '' : 's'}`)}
+        ${fig('#/books/income', 'Received this month', paidMonth.reduce((s, p) => s + num(p.amount), 0), `${paidMonth.length} payment${paidMonth.length === 1 ? '' : 's'}`)}
       </div>
       <div class="dash-grid">
         <section class="panel">
@@ -468,12 +477,12 @@
       <div class="doc-layout">
         <div class="desk" id="desk"></div>
         <aside class="panel doc-side">
-          <div class="side-card">
+          ${doc.type === 'quote' ? `<div class="side-card">
             <h3>Status</h3>
             <div class="status-pick" id="statusPick">
               ${statuses.map((s) => `<button data-status="${esc(s)}" class="${s === doc.status ? 'on badge s-' + slug(s) : ''}">${esc(s)}</button>`).join('')}
             </div>
-          </div>
+          </div>` : window.Books.invoicePanel(doc)}
           ${doc.type === 'quote' ? `<div class="side-card">
             ${linkedInvoice ? `<div class="link-note">Invoiced as <a href="#/doc/${linkedInvoice.id}">${esc(linkedInvoice.number)}</a></div>`
               : `<button class="btn btn-accent" style="width:100%" data-act="convert">${I.convert}Convert to invoice</button>
@@ -506,7 +515,8 @@
 
     renderPreview(doc);
 
-    $('#statusPick').addEventListener('click', (e) => {
+    if (doc.type === 'invoice') window.Books.bindInvoicePanel(doc, () => viewDoc(id));
+    if (doc.type === 'quote') $('#statusPick').addEventListener('click', (e) => {
       const b = e.target.closest('[data-status]');
       if (!b || b.dataset.status === doc.status) return;
       guard(async () => {
@@ -579,8 +589,11 @@
   }
 
   async function deleteDocFlow(doc) {
-    if (!confirm(`Delete ${typeName(doc.type).toLowerCase()} ${doc.number}? This cannot be undone.`)) return;
+    const pays = state.payments.filter((p) => p.invoiceId === doc.id);
+    if (!confirm(`Delete ${typeName(doc.type).toLowerCase()} ${doc.number}?${pays.length ? ` Its ${pays.length} recorded payment${pays.length === 1 ? '' : 's'} will be deleted too.` : ''} This cannot be undone.`)) return;
     await guard(async () => {
+      for (const p of pays) await Store.deleteRow('payments', p.id);
+      state.payments = state.payments.filter((p) => p.invoiceId !== doc.id);
       await Store.deleteDoc(doc.id);
       state.docs = state.docs.filter((d) => d.id !== doc.id);
       // unlink
@@ -701,10 +714,9 @@
         <aside class="editor-side">
           <section class="panel summary" id="summary"></section>
           ${!isQuote ? `<section class="panel panel-pad" style="margin-top:16px">
-            <div class="grid">
-              ${f('status', 'Status', { select: INVOICE_STATUSES })}
-              ${f('amountPaid', 'Amount received', { type: 'number', hint: 'shows balance due on PDF' })}
-            </div></section>` : `<section class="panel panel-pad" style="margin-top:16px">${f('status', 'Status', { select: QUOTE_STATUSES })}</section>`}
+            <div class="row" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span class="muted small">Status</span>${badge(draft.status)}</div>
+            <p class="form-note">Status updates automatically when you record payments on the invoice page.</p>
+            </section>` : `<section class="panel panel-pad" style="margin-top:16px">${f('status', 'Status', { select: QUOTE_STATUSES })}</section>`}
         </aside>
       </form>`);
 
@@ -779,7 +791,7 @@
       }
     });
     form.addEventListener('change', (e) => {
-      if (e.target.matches('[data-f="amountPaid"]') && !isQuote) {
+      if (false) {
         const T = totals(draft);
         const sel = form.querySelector('[data-f="status"]');
         if (T.paid > 0 && T.balance <= 0 && draft.status !== 'Paid') { draft.status = 'Paid'; sel.value = 'Paid'; draft.paidDate = draft.paidDate || today(); }
@@ -802,7 +814,7 @@
       draft.items = draft.items.filter((it, i) => it.title || it.description || num(it.price) || draft.items.length === 1);
       draft.items.forEach((it) => { it.qty = num(it.qty); it.price = num(it.price); });
       draft.discount = num(draft.discount); draft.vatRate = num(draft.vatRate); draft.amountPaid = num(draft.amountPaid);
-      if (draft.status === 'Paid' && !draft.paidDate) draft.paidDate = today();
+      if (!isQuote) window.Books.syncInvoice(draft);
       const ok = await guard(async () => {
         await upsertClientFromDoc(draft);
         await saveDoc(clone(draft));
@@ -1016,6 +1028,17 @@
           </div>
         </div>
         <div class="settings-grid">
+          <header><h2>Bookkeeping</h2><p>Expense categories (one per line) and your VAT return periods.</p></header>
+          <div class="grid g2">
+            <label class="field"><span>VAT quarters</span>
+              <select data-s="books.vatQuarterStart">
+                ${[[1, 'January, April, July, October'], [2, 'February, May, August, November'], [3, 'March, June, September, December']].map(([v, l]) => `<option value="${v}" ${Number(s.books.vatQuarterStart) === v ? 'selected' : ''}>Start in ${l}</option>`).join('')}
+              </select></label>
+            ${f('books.billDueDays', 'Supplier bills due in (days)', { type: 'number' })}
+            <label class="field span2"><span>Expense categories <em>one per line</em></span><textarea data-s="books.categoriesText" rows="6">${esc((s.books.categories || []).join('\n'))}</textarea></label>
+          </div>
+        </div>
+        <div class="settings-grid">
           <header><h2>Data</h2><p>${Store.mode === 'cloud' ? 'Your records are stored in your Supabase database and sync across devices.' : 'Your records are stored in this browser only.'} Download a backup now and then.</p></header>
           <div class="actions">
             <button type="button" class="btn" id="backup">${I.download}Download backup</button>
@@ -1029,11 +1052,13 @@
     if (Store.mode === 'cloud') Store.session().then((x) => { const w = $('#who'); if (w && x.email) w.textContent = ' (' + x.email + ')'; });
 
     const form = $('#settingsForm');
+    form.addEventListener('change', (e) => { if (e.target.matches('select[data-s]')) e.target.dispatchEvent(new Event('input', { bubbles: true })); });
     form.addEventListener('input', (e) => {
       const el = e.target.closest('[data-s]');
       if (!el) return;
       let v = el.type === 'checkbox' ? el.checked : el.value;
-      if (el.type === 'number') v = num(el.value);
+      if (el.type === 'number' || el.dataset.s === 'books.vatQuarterStart') v = num(el.value);
+      if (el.dataset.s === 'books.categoriesText') { s.books.categories = String(v).split('\n').map((x) => x.trim()).filter(Boolean); dirty = true; return; }
       setPath(s, el.dataset.s, v);
       dirty = true;
       if (el.dataset.s.startsWith('numbering.')) {
@@ -1060,7 +1085,7 @@
     });
 
     $('#backup').addEventListener('click', () => {
-      const data = { app: 'quotes-invoices', version: 1, exportedAt: new Date().toISOString(), settings: S(), clients: state.clients, docs: state.docs };
+      const data = { app: 'quotes-invoices', version: 2, exportedAt: new Date().toISOString(), settings: S(), clients: state.clients, docs: state.docs, payments: state.payments, expenses: state.expenses };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -1074,14 +1099,16 @@
       let data;
       try { data = JSON.parse(await file.text()); } catch (err) { toast('That file is not a valid backup.', true); return; }
       if (!data || !Array.isArray(data.docs)) { toast('That file is not a valid backup.', true); return; }
-      if (!confirm(`Restore ${data.docs.length} documents and ${(data.clients || []).length} clients from this backup? Records with the same ID are replaced.`)) return;
+      if (!confirm(`Restore ${data.docs.length} documents, ${(data.clients || []).length} clients, ${(data.payments || []).length} payments and ${(data.expenses || []).length} expenses from this backup? Records with the same ID are replaced.`)) return;
       await guard(async () => {
         const merged = {
           settings: data.settings ? deepMerge(DEFAULT_SETTINGS, data.settings) : S(),
           clients: mergeById(state.clients, data.clients || []),
           docs: mergeById(state.docs, data.docs),
+          payments: mergeById(state.payments, data.payments || []),
+          expenses: mergeById(state.expenses, data.expenses || []),
         };
-        if (Store.mode === 'cloud') await Store.replaceAll({ settings: merged.settings, clients: data.clients || [], docs: data.docs });
+        if (Store.mode === 'cloud') await Store.replaceAll({ settings: merged.settings, clients: data.clients || [], docs: data.docs, payments: state.booksMissing ? [] : (data.payments || []), expenses: state.booksMissing ? [] : (data.expenses || []) });
         else await Store.replaceAll(merged);
         Object.assign(state, merged);
         logoCache.key = null;
@@ -1138,6 +1165,10 @@
     state.settings = deepMerge(DEFAULT_SETTINGS, data.settings || {});
     state.clients = data.clients || [];
     state.docs = data.docs || [];
+    state.payments = data.payments || [];
+    state.expenses = data.expenses || [];
+    state.booksMissing = !!data.booksMissing;
+    try { await window.Books.migrate(); } catch (e) { console.warn('Payment migration skipped', e); }
     if (!data.settings) { try { await Store.saveSettings(state.settings); } catch (e) { console.warn(e); } }
     state.ready = true;
     route();
@@ -1152,11 +1183,18 @@
     try {
       const data = await Store.loadAll();
       state.settings = deepMerge(DEFAULT_SETTINGS, data.settings || {});
-      state.clients = data.clients; state.docs = data.docs;
+      state.clients = data.clients; state.docs = data.docs; state.payments = data.payments || []; state.expenses = data.expenses || []; state.booksMissing = !!data.booksMissing;
       const h = location.hash;
-      if (!/^#\/(edit|new|settings)/.test(h)) route();
+      if (!/^#\/(edit|new|settings)/.test(h) && !document.querySelector('.modal-back')) route();
     } catch (e) { console.warn('Refresh failed', e); }
   });
+
+  // Shared helpers for the bookkeeping module (js/books.js)
+  window.App = {
+    state, I, $, $$, esc, clone, slug, toast, guard, setView, renderShell, modeBanner, badge, saveDoc, docById, sortDocs,
+    getLogo, settings: S, INVOICE_STATUSES, route,
+    setDirty(v) { dirty = v; },
+  };
 
   async function boot() {
     try {
@@ -1168,5 +1206,5 @@
       setView(`<div class="empty"><h2>The app could not start</h2><p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">Reload</button></div>`);
     }
   }
-  boot();
+  document.addEventListener('DOMContentLoaded', boot);
 })();

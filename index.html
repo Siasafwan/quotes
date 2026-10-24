@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Quotes & Invoices</title>
+  <meta name="theme-color" content="#0F2A4F">
+  <meta name="description" content="Create quotations, convert them to invoices and download PDFs.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Quotes">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand" href="#/">
+        <span class="brand-mark"><img id="brandLogo" src="assets/icon-192.png" alt=""></span>
+        <span class="brand-text"><strong id="brandName">Quotes &amp; Invoices</strong><small id="brandMode"></small></span>
+      </a>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+
+    <header class="topbar">
+      <a class="brand" href="#/">
+        <span class="brand-mark"><img src="assets/icon-192.png" alt=""></span>
+        <strong id="topTitle">Quotes &amp; Invoices</strong>
+      </a>
+    </header>
+
+    <main id="view" class="view" tabindex="-1">
+      <div class="boot">Loading…</div>
+    </main>
+
+    <nav class="tabbar" id="tabbar" aria-label="Main navigation"></nav>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Libraries -->
+  <script defer src="lib/pdf-lib.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <!-- App -->
+  <script defer src="js/config.js"></script>
+  <script defer src="js/calc.js"></script>
+  <script defer src="js/pdf.js"></script>
+  <script defer src="js/store.js"></script>
+  <script defer src="js/app.js"></script>
+</body>
+</html>
